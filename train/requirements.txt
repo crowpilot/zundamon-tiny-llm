@@ -1,0 +1,4 @@
+# torch は V100 なら CUDA 12.6 版を推奨
+torch>=2.3
+sentencepiece>=0.2
+numpy>=1.24

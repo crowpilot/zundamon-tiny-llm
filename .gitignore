@@ -1,0 +1,8 @@
+__pycache__/
+.venv/
+train/out/
+train/data*/
+train/corpus/
+*.jobs.jsonl
+core2/.pio/
+core2/src/model_data.h

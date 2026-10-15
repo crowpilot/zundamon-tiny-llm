@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="71万パラメータの手作りずんだもんLLM。ブラウザの中だけで動き、育っていく途中のずんだもんとも話せます（非公式ファン作品）。">
+<meta property="og:type" content="website">
+<meta property="og:title" content="幼生ずんだもん">
+<meta property="og:description" content="71万パラメータの手作りずんだもんLLM。ブラウザの中だけで動き、育っていく途中のずんだもんとも話せます（非公式ファン作品）。">
+<meta property="og:url" content="https://crowpilot.github.io/zundamon-tiny-llm/">
+<meta property="og:image" content="https://crowpilot.github.io/zundamon-tiny-llm/og.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="幼生ずんだもん">
+<meta name="twitter:description" content="71万パラメータの手作りずんだもんLLM。ブラウザの中だけで動き、育っていく途中のずんだもんとも話せます（非公式ファン作品）。">
+<meta name="twitter:image" content="https://crowpilot.github.io/zundamon-tiny-llm/og.png">
+<style>*,*::before,*::after{box-sizing:border-box}body{margin:0}:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}[hidden]{display:none!important}</style>
+<title>幼生ずんだもん</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Maru+Gothic:wght@500;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* 一画面のチャット。上に「どの成長段階と話すか」、中央に会話、下に話しかけ一覧と入力欄。
+   色は枝豆とお餅（ずんだ餅）の世界から: 豆の緑・餅の白・さやの深緑 */
+:root {
+  --bg: #eef3e8;          /* さやの内側のような淡い緑灰 */
+  --panel: #f8faf5;
+  --fg: #1d2a19;
+  --muted: #5f6e58;
+  --line: #d3dcc9;
+  --zunda: #5f9c2f;       /* ずんだの緑（アクセント） */
+  --zunda-soft: #dcebc9;
+  --mochi: #ffffff;       /* 自分の吹き出し */
+  --ink-on-zunda: #ffffff;
+  --warn: #a2551b;
+  --font-ui: "Zen Maru Gothic", "Hiragino Maru Gothic ProN", "Hiragino Sans", "Noto Sans JP", sans-serif;
+  --font-data: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #121811; --panel: #192118; --fg: #e3ecdb; --muted: #95a58b; --line: #2c3a28;
+    --zunda: #8bc85a; --zunda-soft: #24361b; --mochi: #222c20; --ink-on-zunda: #10170d; --warn: #e39a62;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #121811; --panel: #192118; --fg: #e3ecdb; --muted: #95a58b; --line: #2c3a28;
+  --zunda: #8bc85a; --zunda-soft: #24361b; --mochi: #222c20; --ink-on-zunda: #10170d; --warn: #e39a62;
+  color-scheme: dark;
+}
+html, body { height: 100%; }
+body {
+  background: var(--bg); color: var(--fg); font-family: var(--font-ui); font-size: 15px; line-height: 1.6;
+}
+.app {
+  height: 100%; max-width: 760px; margin: 0 auto; display: grid;
+  grid-template-rows: auto auto 1fr auto auto; gap: 10px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 12px;
+}
+header { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+h1 { font-size: 1.35rem; margin: 0; font-weight: 700; letter-spacing: .02em; text-wrap: balance; }
+.spec { font-family: var(--font-data); font-size: .74rem; color: var(--muted); }
+.controls { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; background: var(--panel); }
+.seg button {
+  font: inherit; font-size: .8rem; border: 0; background: transparent; color: var(--fg); padding: 4px 11px; cursor: pointer;
+}
+.seg button[aria-pressed="true"] { background: var(--zunda); color: var(--ink-on-zunda); }
+#msg:focus { outline: none; border-color: var(--zunda); }
+.seg button:focus-visible, .chip:focus-visible, #send:focus-visible, .link:focus-visible {
+  outline: 2px solid var(--zunda); outline-offset: 2px;
+}
+.grp { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+.ctl-label { font-size: .72rem; color: var(--muted); letter-spacing: .06em; }
+.log {
+  overflow-y: auto; min-height: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+  padding: 14px; display: flex; flex-direction: column; gap: 10px;
+}
+.msg { display: flex; flex-direction: column; max-width: 84%; min-width: 0; }
+.msg.a { align-self: flex-end; align-items: flex-end; }
+.msg.b { align-self: flex-start; }
+.who { font-size: .7rem; color: var(--muted); letter-spacing: .05em; }
+.bubble { padding: 7px 12px; border-radius: 14px; overflow-wrap: anywhere; }
+.a .bubble { background: var(--mochi); border: 1px solid var(--line); border-bottom-right-radius: 4px; }
+.b .bubble { background: var(--zunda-soft); border-bottom-left-radius: 4px; }
+.b .bubble.thinking { color: var(--muted); }
+.tok { border-bottom: 1.5px solid color-mix(in srgb, var(--zunda) 55%, transparent); margin-right: 1px; cursor: help; }
+.notes { font-family: var(--font-data); font-size: .68rem; color: var(--muted); }
+.sys { align-self: center; font-size: .74rem; color: var(--muted); text-align: center; }
+.chips { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: thin; }
+.chip {
+  flex: none; font: inherit; font-size: .82rem; border: 1px solid var(--line); background: var(--panel); color: var(--fg);
+  border-radius: 999px; padding: 3px 11px; cursor: pointer;
+}
+.chip:hover { border-color: var(--zunda); }
+form { display: flex; gap: 8px; }
+#msg {
+  flex: 1; min-width: 0; font: inherit; font-size: 16px; padding: 9px 12px; border-radius: 12px;
+  border: 1px solid var(--line); background: var(--panel); color: var(--fg);
+}
+#send {
+  font: inherit; font-weight: 700; padding: 0 18px; border-radius: 12px; border: 0;
+  background: var(--zunda); color: var(--ink-on-zunda); cursor: pointer;
+}
+#send:disabled { opacity: .5; cursor: default; }
+.foot { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; font-size: .72rem; color: var(--muted); }
+.foot > span:first-child { min-width: 0; flex: 1 1 320px; }
+.foot .num { font-family: var(--font-data); font-variant-numeric: tabular-nums; }
+.link { font: inherit; color: var(--zunda); background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; }
+@media (prefers-reduced-motion: no-preference) { .bubble { transition: background .2s; } }
+</style>
+
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>幼生ずんだもん</h1>
+    <span class="spec" id="spec">読み込み中…</span>
+  </header>
+
+  <div class="controls">
+    <span class="grp"><span class="ctl-label">成長段階</span>
+    <span class="seg" id="stages" role="group" aria-label="成長段階"></span></span>
+    <span class="grp"><span class="ctl-label">話し方</span>
+    <span class="seg" id="temps" role="group" aria-label="話し方">
+      <button type="button" data-t="0" aria-pressed="true">いつもどおり</button>
+      <button type="button" data-t="0.8" aria-pressed="false">きまぐれ</button>
+    </span></span>
+    <span class="grp"><span class="ctl-label">トークン</span>
+    <span class="seg" id="toks" role="group" aria-label="トークン表示">
+      <button type="button" data-v="0" aria-pressed="true">かくす</button>
+      <button type="button" data-v="1" aria-pressed="false">見せる</button>
+    </span></span>
+  </div>
+
+  <div class="log" id="log" aria-live="polite"></div>
+
+  <div class="chips" id="chips" aria-label="話しかけ一覧"></div>
+
+  <form id="form" autocomplete="off">
+    <input id="msg" type="text" maxlength="40" placeholder="ずんだもんに話しかける（ひらがな向き）" aria-label="話しかける言葉">
+    <button id="send" type="submit">送る</button>
+  </form>
+
+  <div class="foot">
+    <span>ブラウザの中だけで計算しています。どこにも送信しません。小さなモデルなので、ときどきおかしなことを言います。<br>
+      非公式のファン作品です。ずんだもんは<a class="link" href="https://zunko.jp/" target="_blank" rel="noopener">東北ずん子・ずんだもんプロジェクト</a>のキャラクターです（<a class="link" href="https://zunko.jp/guideline.html" target="_blank" rel="noopener">キャラクター利用の手引き</a>に沿って非商用で公開）。</span>
+    <span><span class="num" id="speed">— tok/s</span> · <button type="button" class="link" id="reset">会話をリセット</button></span>
+  </div>
+</div>
+
+<script src="llm.js"></script>
+<script src="models.js"></script>
+<script>
+(() => {
+  const D = window.ZUNDA_MODELS;
+  const $ = (id) => document.getElementById(id);
+  const log = $("log"), form = $("form"), msg = $("msg"), send = $("send");
+  const b64 = (s) => { const bin = atob(s); const u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u.buffer; };
+  const tokBuf = b64(D.tok);
+  const cache = new Map();
+  let stage = D.models.length - 1, temp = 0, showTok = false, model = null, busy = false;
+  let pos = 0, lastLogits = null, seed = (Date.now() ^ 0x9e3779b9) >>> 0;
+  const rand = () => { seed ^= seed << 13; seed >>>= 0; seed ^= seed >> 17; seed ^= seed << 5; seed >>>= 0; return seed / 4294967296; };
+  const td = new TextDecoder();
+  const MAX_REPLY = 48;
+
+  function pref(key, val) {
+    try { if (val === undefined) return localStorage.getItem(key); localStorage.setItem(key, val); } catch (e) { return null; }
+  }
+
+  function getModel(i) {
+    if (!cache.has(i)) cache.set(i, new TinyLLM.Model(b64(D.models[i].b64), tokBuf, 256));
+    return cache.get(i);
+  }
+
+  function add(kind, text, extra) {
+    const wrap = document.createElement("div");
+    if (kind === "sys") { wrap.className = "sys"; wrap.textContent = text; log.append(wrap); log.scrollTop = log.scrollHeight; return wrap; }
+    wrap.className = "msg " + kind;
+    const who = document.createElement("div");
+    who.className = "who";
+    who.textContent = kind === "a" ? "あなた" : `ずんだもん（${D.models[stage].label}）`;
+    const bub = document.createElement("div");
+    bub.className = "bubble";
+    bub.textContent = text;
+    wrap.append(who, bub);
+    if (extra) wrap.append(extra);
+    log.append(wrap);
+    log.scrollTop = log.scrollHeight;
+    return bub;
+  }
+
+  function resetContext(note) {
+    pos = 0; lastLogits = null;
+    if (note) add("sys", note);
+  }
+
+  function renderSpec() {
+    const m = D.models[stage];
+    $("spec").textContent = `${D.params} パラメータ · int8 ${D.sizeMB}MB · 学習 ${m.step} 回目 · loss ${m.val.toFixed(2)}`;
+  }
+
+  function buildStages() {
+    const box = $("stages");
+    D.models.forEach((m, i) => {
+      const b = document.createElement("button");
+      b.type = "button"; b.textContent = m.label; b.title = `学習 ${m.step} 回目`;
+      b.setAttribute("aria-pressed", String(i === stage));
+      b.addEventListener("click", () => {
+        if (busy || i === stage) return;
+        stage = i; pref("zunda-stage", String(i));
+        [...box.children].forEach((c, k) => c.setAttribute("aria-pressed", String(k === i)));
+        model = getModel(stage); renderSpec();
+        resetContext(`${m.label}のずんだもんに切り替えました（学習 ${m.step} 回目）`);
+      });
+      box.append(b);
+    });
+  }
+
+  function seg(id, attr, onPick) {
+    const box = $(id);
+    box.addEventListener("click", (e) => {
+      const b = e.target.closest("button"); if (!b) return;
+      [...box.children].forEach((c) => c.setAttribute("aria-pressed", String(c === b)));
+      onPick(b.dataset[attr]);
+    });
+  }
+
+  function decodeIds(ids) {
+    const parts = [];
+    ids.forEach((id) => parts.push(...model.pieceBytes(id)));
+    return td.decode(new Uint8Array(parts));
+  }
+
+  async function talk(text) {
+    text = text.trim().replace(/[ＡＢ]：/g, "");
+    if (!text || busy) return;
+    busy = true; send.disabled = true;
+    add("a", text);
+    const bub = add("b", "…");
+    bub.classList.add("thinking");
+    await new Promise((r) => setTimeout(r, 20));
+    const ids = model.encode("Ａ：" + text + "Ｂ：", pos === 0);
+    if (pos + ids.length + MAX_REPLY >= model.T) { resetContext("話が長くなったので、ここから新しい会話として続けます"); ids.unshift(1); }
+    for (const t of ids) lastLogits = model.forward(t, pos++);
+    const [idA, idB] = model.markerIds;
+    const out = [], notes = [];
+    const t0 = performance.now();
+    for (let k = 0; k < MAX_REPLY && pos < model.T; k++) {
+      const cand = model.topk(lastLogits, 3);
+      const next = model.sample(lastLogits, temp, 0.9, rand);
+      if (next === idA || next === idB || next === 1 || next === 2) break;
+      out.push(next); notes.push(cand);
+      lastLogits = model.forward(next, pos++);
+      render(bub, out, notes);
+      if (k % 3 === 2) await new Promise((r) => setTimeout(r, 0));
+    }
+    const sec = (performance.now() - t0) / 1000;
+    $("speed").textContent = out.length ? `${(out.length / Math.max(sec, 1e-3)).toFixed(0)} tok/s` : "— tok/s";
+    if (!out.length) { bub.textContent = "（だまっている）"; }
+    bub.classList.remove("thinking");
+    bub.dataset.ids = JSON.stringify(out); bub.dataset.notes = JSON.stringify(notes);
+    render(bub, out, notes);
+    busy = false; send.disabled = false; msg.focus();
+  }
+
+  function render(bub, ids, notes) {
+    bub.classList.remove("thinking");
+    if (!showTok) { bub.textContent = decodeIds(ids); return; }
+    bub.textContent = "";
+    ids.forEach((id, i) => {
+      const s = document.createElement("span");
+      s.className = "tok";
+      s.textContent = decodeIds([id]) || "·";
+      s.title = "候補: " + notes[i].map(([c, p]) => `${decodeIds([c]) || "·"} ${(p * 100).toFixed(0)}%`).join(" / ");
+      bub.append(s);
+    });
+  }
+
+  function rerenderAll() {
+    log.querySelectorAll(".b .bubble[data-ids]").forEach((b) => render(b, JSON.parse(b.dataset.ids), JSON.parse(b.dataset.notes)));
+  }
+
+  // 起動
+  const saved = parseInt(pref("zunda-stage"), 10);
+  if (saved >= 0 && saved < D.models.length) stage = saved;
+  buildStages();
+  model = getModel(stage);
+  renderSpec();
+  seg("temps", "t", (v) => { temp = parseFloat(v); });
+  seg("toks", "v", (v) => { showTok = v === "1"; rerenderAll(); });
+  D.openers.forEach((o) => {
+    const c = document.createElement("button");
+    c.type = "button"; c.className = "chip"; c.textContent = o;
+    c.addEventListener("click", () => talk(o));
+    $("chips").append(c);
+  });
+  form.addEventListener("submit", (e) => { e.preventDefault(); const t = msg.value; msg.value = ""; talk(t); });
+  $("reset").addEventListener("click", () => { if (!busy) { log.textContent = ""; resetContext(); add("sys", "新しい会話です"); } });
+  add("sys", "下の話しかけをタップするか、ひらがなで話しかけてみてください");
+  talk(D.openers[0]);
+})();
+</script>
+
+</body>
+</html>
