@@ -1,6 +1,6 @@
 # 幼生ずんだもん
 
-ゼロから学習させた、とても小さな「ずんだもん風」日本語言語モデルです。パラメータは約71万個（int8 で 0.8MB）。ブラウザの中だけで動き、M5Stack Core2（ESP32）でも 1 秒に 6 トークンほどで話します。
+ゼロから学習させた、とても小さな「ずんだもん風」日本語言語モデルです。話しかけると、ずんだもんとして短く返事をします。パラメータは約161万個（int8 で 1.8MB）で、ブラウザの中だけで動きます。M5Stack Core2（ESP32）では、同じデータで学習した約71万パラメータの小さい版が 1 秒に 6 トークンほどで話します。
 
 **デモ**: https://crowpilot.github.io/zundamon-tiny-llm/
 
@@ -8,35 +8,40 @@
 
 ## 育っていく様子
 
-学習の途中で保存したモデルに「こんにちは。」と話しかけたときの返事です（デモでは段階を切り替えて話せます）。
+学習の途中で保存したモデルに「こんにちは。」と話しかけたときの返事です（デモでは段階を切り替えて話せます。「版」を切り替えると、最初に作った 71 万パラメータの版とも話せます）。
 
 | 学習回数 | 返事 |
 |---|---|
-| 40 | 「、、、、、、」 |
-| 63 | 「あ、あ、あ、あ、あ、」 |
-| 100 | 「あ、おち、おちい！」 |
-| 251 | 「ボクが、おとてつだうのだ！」 |
-| 398 | 「おばあちゃん、おなかがすいてきたのだ！」 |
-| 631 | 「ボクは、とってもいそがしいのだ！」 |
+| 16 | 「Ｂ：Ｂ：Ｂ：、、、、、、」 |
+| 63 | 「ボクもボクもボクもボクも……」 |
+| 100 | 「おんがく、ボクも一緒に探すのだ！」 |
+| 251 | 「おつきさまが、とってもかわいいのだ！」 |
+| 398 | 「にがいのは、ボクは苦手なのだ！」 |
+| 631 | 「こんにちはなのだ！ボクはだいじょうぶなのだ！」 |
 
-最初は読点だけ、次に「あ」、語尾の「のだ」と一人称の「ボク」、それから短い受け答え、という順番で身につけていきます。
+最初は記号と読点だけ、次に一人称の「ボク」のくり返し、100 回目にはもう語尾「〜のだ！」の文になり、そのあと話しかけに合わせた返事を覚えていきます。
 
 ## どうやって作ったか
 
-1. **会話データを合成** — Gemma 4（Apache 2.0）に、ずんだもんと色々な相手との短い会話を書かせます。1 回の推論で「種の言葉 3 つ → 短い構成 → 台詞」を 8 本ずつ。相手・ずんだもんの様子（いばる、ツイてない、おさんぽ…）・話題・気分を毎回ランダムに組み合わせて多様にします。
-2. **ふるい分け** — 口調（語尾「のだ」、一人称「ボク」、です・ます禁止）、役の取り違え、漢字の多さを機械的に検査し、さらに LLM に「前の発言に答えているか」を採点させて低いものを除きます。同じ台詞の使いすぎも制限します。6,004 本 → 3,819 本。
-3. **トークナイザ** — SentencePiece BPE、語彙 1,024。
-4. **学習** — Llama 型の Transformer（埋め込み 96 次元・6 層・注意ヘッド 6／KV 3・FFN 256）を CPU で約 8 分。
-5. **int8 化** — 32 個ずつのグループで量子化。精度はほぼ落ちません。
-6. **推論** — llama2.c 互換の C 実装（Core2）と、同じ計算をする JavaScript 実装（ブラウザ）。
+1. **話しかけを合成** — Gemma 4（Apache 2.0）に、ずんだもんへの話しかけを書かせます。あいさつ・質問・報告・誘い・一言・打ち間違いなど 13 種類と長さ・話題の種を毎回ランダムに指定して、1 回の推論で 30 個ずつ。36,012 個。
+2. **返事を合成** — 話しかけ 20 個ずつに、ずんだもんとして返事を付けさせます。話しかけの言葉をそのまま返す「おうむ返し」ばかりにならないよう、言葉を入れてよいのは約 3 割の指示分だけにし、それ以外でくり返した返事は除きます（最終的に約 2 割）。
+3. **ふるい分け** — 口調（語尾「のだ」、一人称「ボク」、です・ます禁止）と漢字の多さを機械的に検査し、さらに LLM に「話しかけに答えているか」「日本語として自然か」を採点させて低いものを除きます。同じ返事の使いすぎも制限します。26,547 組 → 24,190 組。
+4. **トークナイザ** — SentencePiece BPE、語彙 1,024。
+5. **学習** — Llama 型の Transformer（埋め込み 128 次元・8 層・注意ヘッド 8／KV 4・FFN 352）を 10 エポック。小型 PC の CPU で約 10 分です。
+6. **int8 化** — 32 個ずつのグループで量子化。精度はほぼ落ちません。
+7. **推論** — llama2.c 互換の C 実装（Core2）と、同じ計算をする JavaScript 実装（ブラウザ）。
 
-| 項目 | 値 |
-|---|---|
-| パラメータ | 707,808 |
-| 学習データ | 約 21 万トークン（34 万文字） |
-| 評価 loss（ずんだもんの台詞） | 2.64 |
-| モデルサイズ | fp32 2.8MB / int8 0.80MB |
-| 速度 | ブラウザ（PC）約 300 トークン/秒、Core2 約 6 トークン/秒 |
+最初の版は「ずんだもんと相手の短い会話」6,004 本から学習した 71 万パラメータのモデルでした。話しかけと返事の組に作り直してモデルを大きくしたことで、話しかけ 40 個への応答を LLM に 5 段階で採点させた平均が 1.4 から 2.6 に上がりました。
+
+| 項目 | ブラウザ版 | Core2 版 |
+|---|---|---|
+| ファイル | `zunda-base-631` | `zunda-small-631` |
+| パラメータ | 1,607,808 | 707,808 |
+| 構成 | 128 次元・8 層 | 96 次元・6 層 |
+| 学習データ | 約 53 万トークン（84 万文字） | 同じ |
+| 評価 loss（ずんだもんの返事） | 2.35 | 2.59（話しかけ側の重み 0.3 で学習） |
+| モデルサイズ | fp32 6.4MB / int8 1.8MB | fp32 2.8MB / int8 0.80MB |
+| 速度 | PC のブラウザで 100 トークン/秒以上 | 約 6 トークン/秒 |
 
 ## フォルダ
 
@@ -64,13 +69,17 @@ cd core2
 ```sh
 cd train
 pip install -r requirements.txt
-python3 gen_zunda.py --mode inline_plan --n 6000 --out corpus/zunda.jsonl --base_url http://localhost:8000/v1 --model gemma-4
-python3 zunda_judge.py corpus/zunda.jsonl --out corpus/judge.jsonl --base_url http://localhost:8000/v1 --model gemma-4
-python3 zunda_filter.py corpus/zunda.jsonl corpus/judge.jsonl --out corpus/zunda_filtered.jsonl
-python3 prepare.py corpus/zunda_filtered.jsonl --out data --vocab 1024 --char_coverage 0.995
-python3 train.py --data data --run zunda --preset small --epochs 25 --batch_size 32 --prompts prompts_zunda.txt
-python3 quant_eval.py out/zunda --prompts prompts_zunda.txt
+API="--base_url http://localhost:8000/v1 --model gemma-4"
+python3 gen_pairs.py inputs --n 36000 --out corpus/pair_inputs.jsonl $API
+python3 gen_pairs.py replies --inputs corpus/pair_inputs.jsonl --n 30000 --out corpus/pairs.jsonl $API
+python3 zunda_judge.py corpus/pairs.jsonl --out corpus/pairs_judge.jsonl $API
+python3 zunda_filter.py corpus/pairs.jsonl corpus/pairs_judge.jsonl --out corpus/pairs_filtered.jsonl
+python3 prepare.py corpus/pairs_filtered.jsonl --out data --vocab 1024 --char_coverage 0.995 --val_frac 0.02
+python3 train.py --data data --run zunda-base --preset base --epochs 10 --batch_size 32 --prompts prompts_zunda.txt
+python3 quant_eval.py out/zunda-base --prompts prompts_zunda.txt
 ```
+
+最初の版（会話形式のデータ）は `gen_zunda.py` で作れます。
 
 ## ライセンス
 

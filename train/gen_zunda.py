@@ -330,7 +330,7 @@ def main():
     ap.add_argument("--temperature", type=float, default=0.9)
     ap.add_argument("--max_tokens", type=int, default=4000)
     ap.add_argument("--think", action="store_true")
-    ap.add_argument("--queue_timeout", type=int, default=1800)
+    ap.add_argument("--queue_timeout", type=int, default=3600)
     ap.add_argument("--exec_timeout", type=int, default=600)
     ap.add_argument("--poll", type=float, default=5.0)
     ap.add_argument("--max_fail", type=int, default=3)

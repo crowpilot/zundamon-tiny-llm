@@ -177,6 +177,21 @@ class Ledger:
         return [j for j in self.jobs.values() if j.get("state") not in TERMINAL | {"collected"}]
 
 
+def bg_hold(q, queue_timeout):
+    """background が待ち期限より長く始まらない見込みなら、待つべき秒数を返す（status の next_possible_at から判断）"""
+    try:
+        st, s, _ = q.call("GET", "/v1/queue/status")
+    except (urllib.error.URLError, TimeoutError, ConnectionError):
+        return 60
+    if st != 200 or not s.get("accepting", True):
+        return 60
+    npa = (s.get("background") or {}).get("next_possible_at")
+    if not npa:
+        return 0
+    wait = float(npa) - time.time()
+    return wait if wait > queue_timeout - 300 else 0
+
+
 def queue_busy(q):
     """他の利用者のジョブが待っているか（--polite のとき、待ちがあれば投入を見送る）"""
     try:
@@ -258,6 +273,14 @@ def run_queue(args, corpus, make_req=None, parse_fn=None):
         # 新しいジョブを足す
         waiting = False
         while not stop["flag"] and len(inflight) < args.inflight and len(corpus.seen) < args.n:
+            if use_bg:
+                hold = bg_hold(q, args.queue_timeout)
+                if hold:   # 開始禁止の時間帯など、待ち期限より長く始まらない見込みのときは投入を待つ（期限切れを避ける）
+                    waiting = True
+                    yielded += 1
+                    if yielded % 10 == 1:
+                        print(f"  background の開始待ち（{hold:.0f} 秒後まで投入を控えます）", flush=True)
+                    break
             if getattr(args, "polite", False) and not use_bg and queue_busy(q):
                 waiting = True   # 他の利用者が待っている間は投入しない
                 yielded += 1
@@ -282,7 +305,7 @@ def run_queue(args, corpus, make_req=None, parse_fn=None):
                 break
         if not inflight:
             if waiting and not stop["flag"]:
-                time.sleep(30)
+                time.sleep(60 if use_bg else 30)
                 continue
             break
         # 状態を見る
@@ -321,8 +344,9 @@ def run_queue(args, corpus, make_req=None, parse_fn=None):
                 print(f"{len(corpus.seen)}/{args.n} 本  (+{added}, ジョブ{made}件, {el/60:.1f}分, "
                       f"推論 {_dur(s)}, 待ち {_wait(s)})", flush=True)
             else:
-                fails_in_row += 1
                 err = (s.get("error") or {}).get("code", s["state"])
+                if not (job.get("priority") == "background" and err == "queue_timeout"):
+                    fails_in_row += 1   # background の待ち期限切れ（一度も実行されていない）は失敗に数えない
                 ledger.put(job["request_id"], state=s["state"], error=err)
                 print(f"  ジョブ {s['state']}: {err}（再送しません）")
         if fails_in_row >= args.max_fail:
@@ -397,7 +421,7 @@ def main():
     ap.add_argument("--temperature", type=float, default=1.0)
     ap.add_argument("--max_tokens", type=int, default=3000)
     ap.add_argument("--think", action="store_true", help="思考モードを切らない（既定は切る）")
-    ap.add_argument("--queue_timeout", type=int, default=1800)
+    ap.add_argument("--queue_timeout", type=int, default=3600)
     ap.add_argument("--exec_timeout", type=int, default=600)
     ap.add_argument("--poll", type=float, default=5.0)
     ap.add_argument("--max_fail", type=int, default=3)

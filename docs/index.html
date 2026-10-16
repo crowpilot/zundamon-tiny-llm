@@ -3,15 +3,15 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="description" content="71万パラメータの手作りずんだもんLLM。ブラウザの中だけで動き、育っていく途中のずんだもんとも話せます（非公式ファン作品）。">
+<meta name="description" content="161万パラメータの手作りずんだもんLLM。ブラウザの中だけで動き、育っていく途中のずんだもんとも話せます（非公式ファン作品）。">
 <meta property="og:type" content="website">
 <meta property="og:title" content="幼生ずんだもん">
-<meta property="og:description" content="71万パラメータの手作りずんだもんLLM。ブラウザの中だけで動き、育っていく途中のずんだもんとも話せます（非公式ファン作品）。">
+<meta property="og:description" content="161万パラメータの手作りずんだもんLLM。ブラウザの中だけで動き、育っていく途中のずんだもんとも話せます（非公式ファン作品）。">
 <meta property="og:url" content="https://crowpilot.github.io/zundamon-tiny-llm/">
 <meta property="og:image" content="https://crowpilot.github.io/zundamon-tiny-llm/og.png">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="幼生ずんだもん">
-<meta name="twitter:description" content="71万パラメータの手作りずんだもんLLM。ブラウザの中だけで動き、育っていく途中のずんだもんとも話せます（非公式ファン作品）。">
+<meta name="twitter:description" content="161万パラメータの手作りずんだもんLLM。ブラウザの中だけで動き、育っていく途中のずんだもんとも話せます（非公式ファン作品）。">
 <meta name="twitter:image" content="https://crowpilot.github.io/zundamon-tiny-llm/og.png">
 <style>*,*::before,*::after{box-sizing:border-box}body{margin:0}:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}[hidden]{display:none!important}</style>
 <title>幼生ずんだもん</title>
@@ -19,7 +19,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Maru+Gothic:wght@500;700&family=JetBrains+Mono:wght@400;600&display=swap">
 <style>
-/* 一画面のチャット。上に「どの成長段階と話すか」、中央に会話、下に話しかけ一覧と入力欄。
+/* 一画面のチャット。上に「どの版・どの成長段階と話すか」、中央に会話、下に話しかけ一覧と入力欄。
    色は枝豆とお餅（ずんだ餅）の世界から: 豆の緑・餅の白・さやの深緑 */
 :root {
   --bg: #eef3e8;          /* さやの内側のような淡い緑灰 */
@@ -119,6 +119,8 @@ form { display: flex; gap: 8px; }
   </header>
 
   <div class="controls">
+    <span class="grp"><span class="ctl-label">版</span>
+    <span class="seg" id="vers" role="group" aria-label="モデルの版"></span></span>
     <span class="grp"><span class="ctl-label">成長段階</span>
     <span class="seg" id="stages" role="group" aria-label="成長段階"></span></span>
     <span class="grp"><span class="ctl-label">話し方</span>
@@ -157,9 +159,9 @@ form { display: flex; gap: 8px; }
   const $ = (id) => document.getElementById(id);
   const log = $("log"), form = $("form"), msg = $("msg"), send = $("send");
   const b64 = (s) => { const bin = atob(s); const u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u.buffer; };
-  const tokBuf = b64(D.tok);
-  const cache = new Map();
-  let stage = D.models.length - 1, temp = 0, showTok = false, model = null, busy = false;
+  const cache = new Map(), toks = new Map();
+  let ver = 0, V = D.versions[0];   // 0 = 最新版（デフォルト。版の選択は保存しない）
+  let stage = V.models.length - 1, temp = 0, showTok = false, model = null, busy = false;
   let pos = 0, lastLogits = null, seed = (Date.now() ^ 0x9e3779b9) >>> 0;
   const rand = () => { seed ^= seed << 13; seed >>>= 0; seed ^= seed >> 17; seed ^= seed << 5; seed >>>= 0; return seed / 4294967296; };
   const td = new TextDecoder();
@@ -169,10 +171,13 @@ form { display: flex; gap: 8px; }
     try { if (val === undefined) return localStorage.getItem(key); localStorage.setItem(key, val); } catch (e) { return null; }
   }
 
-  function getModel(i) {
-    if (!cache.has(i)) cache.set(i, new TinyLLM.Model(b64(D.models[i].b64), tokBuf, 256));
-    return cache.get(i);
+  function getModel(v, i) {
+    const key = v + ":" + i;
+    if (!toks.has(v)) toks.set(v, b64(D.versions[v].tok));
+    if (!cache.has(key)) cache.set(key, new TinyLLM.Model(b64(D.versions[v].models[i].b64), toks.get(v), 256));
+    return cache.get(key);
   }
+  const whoName = () => ver === 0 ? V.models[stage].label : `${V.name}・${V.models[stage].label}`;
 
   function add(kind, text, extra) {
     const wrap = document.createElement("div");
@@ -180,7 +185,7 @@ form { display: flex; gap: 8px; }
     wrap.className = "msg " + kind;
     const who = document.createElement("div");
     who.className = "who";
-    who.textContent = kind === "a" ? "あなた" : `ずんだもん（${D.models[stage].label}）`;
+    who.textContent = kind === "a" ? "あなた" : `ずんだもん（${whoName()}）`;
     const bub = document.createElement("div");
     bub.className = "bubble";
     bub.textContent = text;
@@ -197,21 +202,45 @@ form { display: flex; gap: 8px; }
   }
 
   function renderSpec() {
-    const m = D.models[stage];
-    $("spec").textContent = `${D.params} パラメータ · int8 ${D.sizeMB}MB · 学習 ${m.step} 回目 · loss ${m.val.toFixed(2)}`;
+    const m = V.models[stage];
+    $("spec").textContent = `${V.name} · ${V.params} パラメータ · int8 ${V.sizeMB}MB · 学習 ${m.step} 回目 · loss ${m.val.toFixed(2)}`;
+  }
+
+  function buildVersions() {
+    const box = $("vers");
+    D.versions.forEach((v, i) => {
+      const b = document.createElement("button");
+      b.type = "button"; b.textContent = `${v.name}（${v.params}）`;
+      b.setAttribute("aria-pressed", String(i === ver));
+      b.addEventListener("click", () => {
+        if (busy || i === ver) return;
+        ver = i; V = D.versions[i];
+        stage = ver === 0 ? latestStage() : V.models.length - 1;
+        [...box.children].forEach((c, k) => c.setAttribute("aria-pressed", String(k === i)));
+        buildStages(); model = getModel(ver, stage); renderSpec();
+        resetContext(`${V.name}（${V.params}パラメータ）のずんだもんに切り替えました`);
+      });
+      box.append(b);
+    });
+  }
+
+  function latestStage() {
+    const saved = parseInt(pref("zunda-stage"), 10);
+    return saved >= 0 && saved < D.versions[0].models.length ? saved : D.versions[0].models.length - 1;
   }
 
   function buildStages() {
     const box = $("stages");
-    D.models.forEach((m, i) => {
+    box.textContent = "";
+    V.models.forEach((m, i) => {
       const b = document.createElement("button");
       b.type = "button"; b.textContent = m.label; b.title = `学習 ${m.step} 回目`;
       b.setAttribute("aria-pressed", String(i === stage));
       b.addEventListener("click", () => {
         if (busy || i === stage) return;
-        stage = i; pref("zunda-stage", String(i));
+        stage = i; if (ver === 0) pref("zunda-stage", String(i));
         [...box.children].forEach((c, k) => c.setAttribute("aria-pressed", String(k === i)));
-        model = getModel(stage); renderSpec();
+        model = getModel(ver, stage); renderSpec();
         resetContext(`${m.label}のずんだもんに切り替えました（学習 ${m.step} 回目）`);
       });
       box.append(b);
@@ -283,10 +312,10 @@ form { display: flex; gap: 8px; }
   }
 
   // 起動
-  const saved = parseInt(pref("zunda-stage"), 10);
-  if (saved >= 0 && saved < D.models.length) stage = saved;
+  stage = latestStage();
+  buildVersions();
   buildStages();
-  model = getModel(stage);
+  model = getModel(ver, stage);
   renderSpec();
   seg("temps", "t", (v) => { temp = parseFloat(v); });
   seg("toks", "v", (v) => { showTok = v === "1"; rerenderAll(); });

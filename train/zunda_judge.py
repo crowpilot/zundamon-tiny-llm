@@ -42,7 +42,7 @@ def main():
     ap.add_argument("--model", default="gemma4-26b-qat-q8")
     ap.add_argument("--client_id", default="tiny-ja-llm")
     ap.add_argument("--inflight", type=int, default=1)
-    ap.add_argument("--queue_timeout", type=int, default=1800)
+    ap.add_argument("--queue_timeout", type=int, default=3600)
     ap.add_argument("--exec_timeout", type=int, default=600)
     ap.add_argument("--poll", type=float, default=5.0)
     ap.add_argument("--max_fail", type=int, default=3)
