@@ -21,12 +21,13 @@ PROMPT = """次の短い会話をそれぞれ採点してください。Ａは�
 採点（各1〜5の整数、5が最良）:
 - response: 各発言が直前の発言にちゃんと答えているか。話が急に飛ぶ・つながらない発言があれば下げる。
 - natural: 日本語として自然か。文法の崩れ・意味の通らない文があれば下げる。
-- zunda: Ｂがずんだもんらしいか（口調・性格）。
+- zunda: Ｂがずんだもんらしいか（口調・性格）。{extra_rule}
 
 {convs}
 
 出力形式（JSONのみ）:
-[{{"i":1,"response":3,"natural":3,"zunda":3}}, ...]"""
+[{{"i":1,"response":3,"natural":3,"zunda":3{extra_key}}}, ...]"""
+EXTRA_RULE = "\n- specific: Ｂの返事が、その発言だから出てくる返事か。どんな発言にも使える決まり文句（「お腹が空いてきたのだ」「とってもいそがしいのだ」など）なら低い。"
 
 
 def main():
@@ -47,7 +48,9 @@ def main():
     ap.add_argument("--poll", type=float, default=5.0)
     ap.add_argument("--max_fail", type=int, default=3)
     ap.add_argument("--polite", action="store_true")
+    ap.add_argument("--specific", action="store_true", help="「ならでは」（specific）も採点する（v4）")
     args = ap.parse_args()
+    keys = ("response", "natural", "zunda") + (("specific",) if args.specific else ())
 
     pool = []
     for f in args.files:
@@ -68,7 +71,9 @@ def main():
         req = {"model": args.model, "temperature": 0.0, "max_tokens": 1500, "stream": False,
                "chat_template_kwargs": {"enable_thinking": False},
                "messages": [{"role": "system", "content": SYSTEM},
-                            {"role": "user", "content": PROMPT.format(convs=convs)}]}
+                            {"role": "user", "content": PROMPT.format(
+                                convs=convs, extra_rule=EXTRA_RULE if args.specific else "",
+                                extra_key=',"specific":3' if args.specific else "")}]}
         return req, {"items": items}
 
     def parse_fn(text, meta):
@@ -77,7 +82,7 @@ def main():
         for r in gc_json(text):
             try:
                 i = int(r["i"]) - 1
-                scores = {k: int(r[k]) for k in ("response", "natural", "zunda")}
+                scores = {k: int(r[k]) for k in keys}
             except (KeyError, ValueError, TypeError):
                 continue
             if 0 <= i < len(items) and all(1 <= v <= 5 for v in scores.values()):

@@ -25,9 +25,12 @@ from ckpt import data_manifest, write_json_atomic
 from llama2c_format import write_tokenizer
 
 SPK = ["Ａ：", "Ｂ："]   # 話者マーカー（1トークンとして扱う）
+# 気持ちタグ（--tags のとき、返事の先頭に 1 トークンとして入れる。zunda_emotion.py の8種類）
+EMO = ["ふつう", "うれしい", "ドヤ", "びっくり", "かなしい", "ぷんぷん", "こまった", "ねむい"]
+TAGS = ["〈" + e + "〉" for e in EMO]
 
 
-def load_samples(paths):
+def load_samples(paths, tags=False, tags_end=False):
     out, seen = [], set()
     for p in paths:
         with open(p, encoding="utf-8") as f:
@@ -37,12 +40,18 @@ def load_samples(paths):
                     continue
                 if p.endswith(".jsonl"):
                     try:
-                        turns = json.loads(line)["turns"]
+                        rec = json.loads(line)
+                        turns = rec["turns"]
                     except (json.JSONDecodeError, KeyError, TypeError):
                         continue
                     turns = [t.strip().replace("\n", "") for t in turns if isinstance(t, str) and t.strip()]
                     if len(turns) < 2:
                         continue
+                    if tags:   # 1組（話しかけ＋返事）に気持ちタグ。タグの無い組は使わない
+                        if rec.get("emo") not in EMO or len(turns) != 2:
+                            continue
+                        tg = "〈" + rec["emo"] + "〉"
+                        turns = [turns[0], turns[1] + tg] if tags_end else [turns[0], tg + turns[1]]
                     text = "".join(SPK[i % 2] + t for i, t in enumerate(turns))
                 else:
                     text = line
@@ -64,10 +73,12 @@ def main():
                     help="会話サンプル（Ａ：で始まる行）を学習側で何倍に水増しするか。地の文が多いデータと混ぜるとき用")
     ap.add_argument("--val_frac", type=float, default=0.02)
     ap.add_argument("--seed", type=int, default=1337)
+    ap.add_argument("--tags", action="store_true", help="jsonl の emo を気持ちタグとして返事の先頭に入れる（タグも1トークン）")
+    ap.add_argument("--tags_end", action="store_true", help="--tags のタグを返事の先頭ではなく最後に置く")
     args = ap.parse_args()
 
     os.makedirs(args.out, exist_ok=True)
-    samples = load_samples(args.inputs)
+    samples = load_samples(args.inputs, tags=args.tags or args.tags_end, tags_end=args.tags_end)
     if len(samples) < 10:
         raise SystemExit(f"サンプルが少なすぎます: {len(samples)}")
     random.Random(args.seed).shuffle(samples)
@@ -90,7 +101,7 @@ def main():
         input=raw, model_prefix=prefix, model_type="bpe", vocab_size=args.vocab,
         character_coverage=args.char_coverage, byte_fallback=True, split_digits=True,
         add_dummy_prefix=False, normalization_rule_name="identity",
-        remove_extra_whitespaces=False, user_defined_symbols=SPK,
+        remove_extra_whitespaces=False, user_defined_symbols=SPK + (TAGS if (args.tags or args.tags_end) else []),
         unk_id=0, bos_id=1, eos_id=2, pad_id=-1,
         max_sentence_length=16384, input_sentence_size=2_000_000, shuffle_input_sentence=True,
         hard_vocab_limit=False, num_threads=os.cpu_count() or 4,

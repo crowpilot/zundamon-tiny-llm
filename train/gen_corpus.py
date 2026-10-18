@@ -192,6 +192,31 @@ def bg_hold(q, queue_timeout):
     return wait if wait > queue_timeout - 300 else 0
 
 
+BG_CAP_MAX = 3          # サーバーが返す枠がこれより大きくても、こちらからはここまで
+_cap_cache = {"t": 0.0, "v": 1}
+
+
+def bg_capacity(q, model):
+    """background_capacity_v1: このクライアントに今許される未完了 background の件数（queued・running を含む）。
+    status が読めない・capability が無い・モデルが合わないときは 1。30 秒ごとに確認する。"""
+    if time.time() - _cap_cache["t"] < 30:
+        return _cap_cache["v"]
+    v = 1
+    try:
+        st, s, _ = q.call("GET", "/v1/queue/status")
+        if st == 200 and (s.get("capabilities") or {}).get("background_capacity_v1"):
+            bg = s.get("background") or {}
+            by = bg.get("active_jobs_by_model") or {}
+            raw = by.get(model) if model in by else (bg.get("active_jobs_per_client") if bg.get("capacity_model") == model else None)
+            v = max(1, min(BG_CAP_MAX, int(raw))) if raw is not None else 1
+    except (urllib.error.URLError, TimeoutError, ConnectionError, ValueError, TypeError):
+        v = 1
+    if v != _cap_cache["v"]:
+        print(f"  background の同時投入枠: {_cap_cache['v']} → {v}", flush=True)
+    _cap_cache.update(t=time.time(), v=v)
+    return v
+
+
 def queue_busy(q):
     """他の利用者のジョブが待っているか（--polite のとき、待ちがあれば投入を見送る）"""
     try:
@@ -272,7 +297,9 @@ def run_queue(args, corpus, make_req=None, parse_fn=None):
     while True:
         # 新しいジョブを足す
         waiting = False
-        while not stop["flag"] and len(inflight) < args.inflight and len(corpus.seen) < args.n:
+        # background では、サーバーが示す枠（background_capacity_v1）まで同時に投入する。枠が縮んだら追加を止めるだけで、取り消しはしない
+        limit = bg_capacity(q, args.model) if use_bg else args.inflight
+        while not stop["flag"] and len(inflight) < limit and len(corpus.seen) < args.n:
             if use_bg:
                 hold = bg_hold(q, args.queue_timeout)
                 if hold:   # 開始禁止の時間帯など、待ち期限より長く始まらない見込みのときは投入を待つ（期限切れを避ける）

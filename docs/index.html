@@ -3,15 +3,15 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="description" content="161万パラメータの手作りずんだもんLLM。ブラウザの中だけで動き、育っていく途中のずんだもんとも話せます（非公式ファン作品）。">
+<meta name="description" content="174万パラメータの手作りずんだもんLLM。ブラウザの中だけで動き、育っていく途中のずんだもんとも話せます（非公式ファン作品）。">
 <meta property="og:type" content="website">
 <meta property="og:title" content="幼生ずんだもん">
-<meta property="og:description" content="161万パラメータの手作りずんだもんLLM。ブラウザの中だけで動き、育っていく途中のずんだもんとも話せます（非公式ファン作品）。">
+<meta property="og:description" content="174万パラメータの手作りずんだもんLLM。ブラウザの中だけで動き、育っていく途中のずんだもんとも話せます（非公式ファン作品）。">
 <meta property="og:url" content="https://crowpilot.github.io/zundamon-tiny-llm/">
 <meta property="og:image" content="https://crowpilot.github.io/zundamon-tiny-llm/og.png">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="幼生ずんだもん">
-<meta name="twitter:description" content="161万パラメータの手作りずんだもんLLM。ブラウザの中だけで動き、育っていく途中のずんだもんとも話せます（非公式ファン作品）。">
+<meta name="twitter:description" content="174万パラメータの手作りずんだもんLLM。ブラウザの中だけで動き、育っていく途中のずんだもんとも話せます（非公式ファン作品）。">
 <meta name="twitter:image" content="https://crowpilot.github.io/zundamon-tiny-llm/og.png">
 <style>*,*::before,*::after{box-sizing:border-box}body{margin:0}:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}[hidden]{display:none!important}</style>
 <title>幼生ずんだもん</title>
@@ -53,7 +53,7 @@ body {
 }
 .app {
   height: 100%; max-width: 760px; margin: 0 auto; display: grid;
-  grid-template-rows: auto auto 1fr auto auto; gap: 10px;
+  grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto 1fr auto auto; gap: 10px;
   padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
   padding-block: 12px;
 }
@@ -61,7 +61,8 @@ header { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
 h1 { font-size: 1.35rem; margin: 0; font-weight: 700; letter-spacing: .02em; text-wrap: balance; }
 .spec { font-family: var(--font-data); font-size: .74rem; color: var(--muted); }
 .controls { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; }
-.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; background: var(--panel); }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; overflow-x: auto; max-width: 100%; scrollbar-width: none; background: var(--panel); }
+.seg button { flex: none; }
 .seg button {
   font: inherit; font-size: .8rem; border: 0; background: transparent; color: var(--fg); padding: 4px 11px; cursor: pointer;
 }
@@ -70,7 +71,7 @@ h1 { font-size: 1.35rem; margin: 0; font-weight: 700; letter-spacing: .02em; tex
 .seg button:focus-visible, .chip:focus-visible, #send:focus-visible, .link:focus-visible {
   outline: 2px solid var(--zunda); outline-offset: 2px;
 }
-.grp { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+.grp { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; max-width: 100%; min-width: 0; }
 .ctl-label { font-size: .72rem; color: var(--muted); letter-spacing: .06em; }
 .log {
   overflow-y: auto; min-height: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
@@ -80,6 +81,7 @@ h1 { font-size: 1.35rem; margin: 0; font-weight: 700; letter-spacing: .02em; tex
 .msg.a { align-self: flex-end; align-items: flex-end; }
 .msg.b { align-self: flex-start; }
 .who { font-size: .7rem; color: var(--muted); letter-spacing: .05em; }
+.who .emo { margin-left: 8px; color: var(--zunda); }
 .bubble { padding: 7px 12px; border-radius: 14px; overflow-wrap: anywhere; }
 .a .bubble { background: var(--mochi); border: 1px solid var(--line); border-bottom-right-radius: 4px; }
 .b .bubble { background: var(--zunda-soft); border-bottom-left-radius: 4px; }
@@ -270,16 +272,28 @@ form { display: flex; gap: 8px; }
     const bub = add("b", "…");
     bub.classList.add("thinking");
     await new Promise((r) => setTimeout(r, 20));
-    const ids = model.encode("Ａ：" + text + "Ｂ：", pos === 0);
-    if (pos + ids.length + MAX_REPLY >= model.T) { resetContext("話が長くなったので、ここから新しい会話として続けます"); ids.unshift(1); }
+    // 話しかけごとに BOS を置く（学習データでは 1 組ずつ BOS で区切っているので、それと同じ形にする）
+    const ids = model.encode("Ａ：" + text + "Ｂ：", true);
+    if (pos + ids.length + MAX_REPLY >= model.T) resetContext("話が長くなったので、ここから新しい会話として続けます");
     for (const t of ids) lastLogits = model.forward(t, pos++);
     const [idA, idB] = model.markerIds;
+    // 最新版（v4）は返事の最後に〈うれしい〉などの気持ちタグを 1 トークン出す。タグが来たら返事の終わりとし、気持ちはタグの中だけで一番のものを選ぶ
+    if (!model.tagIds) model.tagIds = model.tok.vocab.map((v, i) => (/^〈.+〉$/.test(v) ? i : -1)).filter((i) => i >= 0);
+    const tags = model.tagIds;
+    let emo = "";
     const out = [], notes = [];
     const t0 = performance.now();
     for (let k = 0; k < MAX_REPLY && pos < model.T; k++) {
       const cand = model.topk(lastLogits, 3);
       const next = model.sample(lastLogits, temp, 0.9, rand);
-      if (next === idA || next === idB || next === 1 || next === 2) break;
+      if (next === idA || next === idB || next === 1 || next === 2 || tags.includes(next)) {
+        if (tags.length) {
+          const t = tags.reduce((b, i) => (lastLogits[i] > lastLogits[b] ? i : b), tags[0]);
+          emo = model.tok.vocab[t].slice(1, -1);
+          if (pos < model.T) lastLogits = model.forward(t, pos++);   // 学習のときと同じ形で、タグも会話の流れに入れておく
+        }
+        break;
+      }
       out.push(next); notes.push(cand);
       lastLogits = model.forward(next, pos++);
       render(bub, out, notes);
@@ -288,6 +302,10 @@ form { display: flex; gap: 8px; }
     const sec = (performance.now() - t0) / 1000;
     $("speed").textContent = out.length ? `${(out.length / Math.max(sec, 1e-3)).toFixed(0)} tok/s` : "— tok/s";
     if (!out.length) { bub.textContent = "（だまっている）"; }
+    if (emo) {
+      const e = document.createElement("span"); e.className = "emo"; e.textContent = "気持ち: " + emo;
+      bub.parentElement.querySelector(".who").append(e);
+    }
     bub.classList.remove("thinking");
     bub.dataset.ids = JSON.stringify(out); bub.dataset.notes = JSON.stringify(notes);
     render(bub, out, notes);
